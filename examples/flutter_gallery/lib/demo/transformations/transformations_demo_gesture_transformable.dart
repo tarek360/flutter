@@ -1,571 +1,252 @@
+import 'dart:math';
+import 'dart:ui' show Vertices;
 import 'package:flutter/material.dart';
-import 'package:vector_math/vector_math_64.dart' show Vector3;
-import 'transformations_demo_inertial_motion.dart';
+import 'transformations_demo_board.dart';
+import 'transformations_demo_edit_board_point.dart';
+import 'transformations_demo_gesture_transformable.dart';
 
-// This widget allows 2D transform interactions on its child in relation to its
-// parent. The user can transform the child by dragging to pan or pinching to
-// zoom and rotate. All event callbacks for GestureDetector are supported, and
-// the coordinates that are given are untransformed and in relation to the
-// original position of the child.
-@immutable
-class GestureTransformable extends StatefulWidget {
-  const GestureTransformable({
-    Key key,
-    // The child to perform the transformations on.
-    @required this.child,
-    // The desired visible size of the widget and the area that is receptive to
-    // gestures. If a widget that's as big as possible is desired, then wrap
-    // this in a LayoutBuilder and pass
-    // `Size(constraints.maxWidth, constraints.maxHeight)`.
-    @required this.size,
-    // The scale will be clamped to between these values. A maxScale of null has
-    // no bounds. minScale must be greater than zero.
-    this.maxScale = 2.5,
-    this.minScale = 0.8,
-    // Transforms will be limited so that the viewport can not view beyond this
-    // Rect. The Rect does not rotate with the rest of the scene, so it is
-    // always aligned with the viewport. A null boundaryRect results in no
-    // limits to the distance that the viewport can be transformed to see.
-    this.boundaryRect,
-    // Initial values for the transform can be provided.
-    this.initialTranslation,
-    this.initialScale,
-    this.initialRotation,
-    // Any and all of the possible transformations can be disabled.
-    this.disableTranslation = false,
-    this.disableScale = false,
-    this.disableRotation = false,
-    // If set to true, this widget will animate back to its initial transform
-    // and call onResetEnd when done. When utilizing reset, onResetEnd should
-    // also be implemented, and it should set reset to false when called.
-    this.reset = false,
-    // Access to event callbacks from GestureDetector. Called with untransformed
-    // coordinates in an Offset.
-    this.onTapDown,
-    this.onTapUp,
-    this.onTap,
-    this.onTapCancel,
-    this.onDoubleTap,
-    this.onLongPress,
-    this.onLongPressUp,
-    this.onVerticalDragDown,
-    this.onVerticalDragStart,
-    this.onVerticalDragUpdate,
-    this.onVerticalDragEnd,
-    this.onVerticalDragCancel,
-    this.onHorizontalDragDown,
-    this.onHorizontalDragStart,
-    this.onHorizontalDragUpdate,
-    this.onHorizontalDragEnd,
-    this.onHorizontalDragCancel,
-    this.onPanDown,
-    this.onPanStart,
-    this.onPanUpdate,
-    this.onPanEnd,
-    this.onPanCancel,
-    this.onResetEnd,
-    this.onScaleStart,
-    this.onScaleUpdate,
-    this.onScaleEnd,
-  }) : assert(child != null),
-       assert(size != null),
-       assert(minScale != null),
-       assert(minScale > 0),
-       assert(disableTranslation != null),
-       assert(disableScale != null),
-       assert(disableRotation != null),
-       assert(reset != null),
-       assert(
-         !reset || onResetEnd != null,
-         'Must implement onResetEnd to use reset.',
-       ),
-       super(key: key);
+class TransformationsDemo extends StatefulWidget {
+  const TransformationsDemo({ Key key }) : super(key: key);
 
-  final Widget child;
-  final Size size;
-  final bool reset;
-  final GestureTapDownCallback onTapDown;
-  final GestureTapUpCallback onTapUp;
-  final GestureTapCallback onTap;
-  final GestureTapCancelCallback onTapCancel;
-  final GestureTapCallback onDoubleTap;
-  final GestureLongPressCallback onLongPress;
-  final GestureLongPressUpCallback onLongPressUp;
-  final GestureDragDownCallback onVerticalDragDown;
-  final GestureDragStartCallback onVerticalDragStart;
-  final GestureDragUpdateCallback onVerticalDragUpdate;
-  final GestureDragEndCallback onVerticalDragEnd;
-  final GestureDragCancelCallback onVerticalDragCancel;
-  final GestureDragDownCallback onHorizontalDragDown;
-  final GestureDragStartCallback onHorizontalDragStart;
-  final GestureDragUpdateCallback onHorizontalDragUpdate;
-  final GestureDragEndCallback onHorizontalDragEnd;
-  final GestureDragCancelCallback onHorizontalDragCancel;
-  final GestureDragDownCallback onPanDown;
-  final GestureDragStartCallback onPanStart;
-  final GestureDragUpdateCallback onPanUpdate;
-  final GestureDragEndCallback onPanEnd;
-  final GestureDragCancelCallback onPanCancel;
-  final VoidCallback onResetEnd;
-  final GestureScaleStartCallback onScaleStart;
-  final GestureScaleUpdateCallback onScaleUpdate;
-  final GestureScaleEndCallback onScaleEnd;
-  final double maxScale;
-  final double minScale;
-  final Rect boundaryRect;
-  final bool disableTranslation;
-  final bool disableScale;
-  final bool disableRotation;
-  final Offset initialTranslation;
-  final double initialScale;
-  final double initialRotation;
+  static const String routeName = '/transformations';
 
-  @override _GestureTransformableState createState() => _GestureTransformableState();
+  @override _TransformationsDemoState createState() => _TransformationsDemoState();
 }
+class _TransformationsDemoState extends State<TransformationsDemo> {
+  // The radius of a hexagon tile in pixels.
+  static const double _kHexagonRadius = 32.0;
+  // The margin between hexagons.
+  static const double _kHexagonMargin = 1.0;
+  // The radius of the entire board in hexagons, not including the center.
+  static const int _kBoardRadius = 8;
 
-// A single user event can only represent one of these gestures. The user can't
-// do multiple at the same time, which results in more precise transformations.
-enum _GestureType {
-  translate,
-  scale,
-  rotate,
-}
-
-// This is public only for access from a unit test.
-class _GestureTransformableState extends State<GestureTransformable> with TickerProviderStateMixin {
-  Animation<Offset> _animation;
-  AnimationController _controller;
-  Animation<Matrix4> _animationReset;
-  AnimationController _controllerReset;
-  // The translation that will be applied to the scene (not viewport).
-  // A positive x offset moves the scene right, viewport left.
-  // A positive y offset moves the scene down, viewport up.
-  Offset _translateFromScene; // Point where a single translation began.
-  double _scaleStart; // Scale value at start of scaling gesture.
-  double _rotationStart = 0.0; // Rotation at start of rotation gesture.
-  Rect _boundaryRect;
-  Matrix4 _transform = Matrix4.identity();
-  double _currentRotation = 0.0;
-  _GestureType gestureType;
-
-  // The transformation matrix that gives the initial home position.
-  Matrix4 get _initialTransform {
-    Matrix4 matrix = Matrix4.identity();
-    if (widget.initialTranslation != null) {
-      matrix = matrixTranslate(matrix, widget.initialTranslation);
-    }
-    if (widget.initialScale != null) {
-      matrix = matrixScale(matrix, widget.initialScale);
-    }
-    if (widget.initialRotation != null) {
-      matrix = matrixRotate(matrix, widget.initialRotation, Offset.zero);
-    }
-    return matrix;
-  }
-
-  // Return the scene point at the given viewport point.
-  static Offset fromViewport(Offset viewportPoint, Matrix4 transform) {
-    // On viewportPoint, perform the inverse transformation of the scene to get
-    // where the point would be in the scene before the transformation.
-    final Matrix4 inverseMatrix = Matrix4.inverted(transform);
-    final Vector3 untransformed = inverseMatrix.transform3(Vector3(
-      viewportPoint.dx,
-      viewportPoint.dy,
-      0,
-    ));
-    return Offset(untransformed.x, untransformed.y);
-  }
-
-  // Get the offset of the current widget from the global screen coordinates.
-  // TODO(justinmc): Protect against calling this during first build.
-  static Offset getOffset(BuildContext context) {
-    final RenderBox renderObject = context.findRenderObject();
-    return renderObject.localToGlobal(Offset.zero);
-  }
+  bool _reset = false;
+  Board _board = Board(
+    boardRadius: _kBoardRadius,
+    hexagonRadius: _kHexagonRadius,
+    hexagonMargin: _kHexagonMargin,
+  );
 
   @override
-  void initState() {
-    super.initState();
-    _boundaryRect = widget.boundaryRect ?? Offset.zero & widget.size;
-    _transform = _initialTransform;
-    _controller = AnimationController(
-      vsync: this,
+  Widget build (BuildContext context) {
+    final BoardPainter painter = BoardPainter(
+      board: _board,
     );
-    _controllerReset = AnimationController(
-      vsync: this,
-    );
-    if (widget.reset) {
-      _animateResetInitialize();
-    }
-  }
 
-  @override
-  void didUpdateWidget(GestureTransformable oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.reset && !oldWidget.reset && _animationReset == null) {
-      _animateResetInitialize();
-    } else if (!widget.reset && oldWidget.reset && _animationReset != null) {
-      _animateResetStop();
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // A GestureDetector allows the detection of panning and zooming gestures on
-    // its child, which is the CustomPaint.
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque, // Necessary when translating off screen
-      onTapDown: widget.onTapDown == null ? null : (TapDownDetails details) {
-        widget.onTapDown(TapDownDetails(
-          globalPosition: fromViewport(details.globalPosition - getOffset(context), _transform),
-        ));
-      },
-      onTapUp: widget.onTapUp == null ? null : (TapUpDetails details) {
-        widget.onTapUp(TapUpDetails(
-          globalPosition: fromViewport(details.globalPosition - getOffset(context), _transform),
-        ));
-      },
-      onTap: widget.onTap,
-      onTapCancel: widget.onTapCancel,
-      onDoubleTap: widget.onDoubleTap,
-      onLongPress: widget.onLongPress,
-      onLongPressUp: widget.onLongPressUp,
-      onVerticalDragDown: widget.onVerticalDragDown == null ? null : (DragDownDetails details) {
-        widget.onVerticalDragDown(DragDownDetails(
-          globalPosition: fromViewport(details.globalPosition - getOffset(context), _transform),
-        ));
-      },
-      onVerticalDragStart: widget.onVerticalDragStart == null ? null : (DragStartDetails details) {
-        widget.onVerticalDragStart(DragStartDetails(
-          globalPosition: fromViewport(details.globalPosition - getOffset(context), _transform),
-        ));
-      },
-      onVerticalDragUpdate: widget.onVerticalDragUpdate == null ? null : (DragUpdateDetails details) {
-        widget.onVerticalDragUpdate(DragUpdateDetails(
-          globalPosition: fromViewport(details.globalPosition - getOffset(context), _transform),
-        ));
-      },
-      onVerticalDragEnd: widget.onVerticalDragEnd,
-      onVerticalDragCancel: widget.onVerticalDragCancel,
-      onHorizontalDragDown: widget.onHorizontalDragDown == null ? null : (DragDownDetails details) {
-        widget.onHorizontalDragDown(DragDownDetails(
-          globalPosition: fromViewport(details.globalPosition - getOffset(context), _transform),
-        ));
-      },
-      onHorizontalDragStart: widget.onHorizontalDragStart == null ? null : (DragStartDetails details) {
-        widget.onHorizontalDragStart(DragStartDetails(
-          globalPosition: fromViewport(details.globalPosition - getOffset(context), _transform),
-        ));
-      },
-      onHorizontalDragUpdate: widget.onHorizontalDragUpdate == null ? null : (DragUpdateDetails details) {
-        widget.onHorizontalDragUpdate(DragUpdateDetails(
-          globalPosition: fromViewport(details.globalPosition - getOffset(context), _transform),
-        ));
-      },
-      onHorizontalDragEnd: widget.onHorizontalDragEnd,
-      onHorizontalDragCancel: widget.onHorizontalDragCancel,
-      onPanDown: widget.onPanDown == null ? null : (DragDownDetails details) {
-        widget.onPanDown(DragDownDetails(
-          globalPosition: fromViewport(details.globalPosition - getOffset(context), _transform),
-        ));
-      },
-      onPanStart: widget.onPanStart == null ? null : (DragStartDetails details) {
-        widget.onPanStart(DragStartDetails(
-          globalPosition: fromViewport(details.globalPosition - getOffset(context), _transform),
-        ));
-      },
-      onPanUpdate: widget.onPanUpdate == null ? null : (DragUpdateDetails details) {
-        widget.onPanUpdate(DragUpdateDetails(
-          globalPosition: fromViewport(details.globalPosition - getOffset(context), _transform),
-        ));
-      },
-      onPanEnd: widget.onPanEnd,
-      onPanCancel: widget.onPanCancel,
-      onScaleEnd: _onScaleEnd,
-      onScaleStart: _onScaleStart,
-      onScaleUpdate: _onScaleUpdate,
-      child: ClipRect(
-        // The scene is panned/zoomed/rotated using this Transform widget.
-        child: Transform(
-          transform: _transform,
-          child: Container(
-            child: widget.child,
-            height: widget.size.height,
-            width: widget.size.width,
+    // The scene is drawn by a CustomPaint, but user interaction is handled by
+    // the GestureTransformable parent widget.
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('2D Tranformations'),
+        actions: <Widget>[
+          IconButton(
+            icon: const Icon(Icons.help),
+            tooltip: 'Help',
+            onPressed: () {
+              showDialog<Column>(
+                context: context,
+                builder: (BuildContext context) => instructionDialog,
+              );
+            },
           ),
-        ),
+        ],
       ),
+      body: LayoutBuilder(
+        builder: (BuildContext context, BoxConstraints constraints) {
+          // Draw the scene as big as is available, but allow the user to
+          // translate beyond that to a visibleSize that's a bit bigger.
+          final Size size = Size(constraints.maxWidth, constraints.maxHeight);
+          final Size visibleSize = Size(size.width * 3, size.height * 2);
+          final Rect visibleRect = Rect.fromLTWH(
+            -(visibleSize.width - size.width) / 2,
+            -(visibleSize.height - size.height) / 2,
+            visibleSize.width,
+            visibleSize.height,
+          );
+
+          return GestureTransformable(
+            reset: _reset,
+            onResetEnd: () {
+              setState(() {
+                _reset = false;
+              });
+            },
+            child: CustomPaint(
+              painter: HeartsPainter(),
+            ),
+            boundaryRect: visibleRect,
+            // Center the board in the middle of the screen. It's drawn centered
+            // at the origin, which is the top left corner of the
+            // GestureTransformable.
+            initialTranslation: Offset(size.width / 2, size.height / 2),
+            onTapUp: _onTapUp,
+            size: size,
+          );
+        },
+      ),
+      floatingActionButton: _board.selected == null ? resetButton : editButton,
     );
   }
 
-  // Return a new matrix representing the given matrix after applying the given
-  // translation.
-  Matrix4 matrixTranslate(Matrix4 matrix, Offset translation) {
-    if (widget.disableTranslation || translation == Offset.zero) {
-      return matrix;
-    }
-
-    // Clamp translation so the viewport remains inside _boundaryRect.
-    final double scale = _transform.getMaxScaleOnAxis();
-    final Size scaledSize = widget.size / scale;
-    final Rect viewportBoundaries = Rect.fromLTRB(
-      _boundaryRect.left,
-      _boundaryRect.top,
-      _boundaryRect.right - scaledSize.width,
-      _boundaryRect.bottom - scaledSize.height,
+  Widget get instructionDialog {
+    return AlertDialog(
+      title: const Text('2D Transformations'),
+      content: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: const <Widget>[
+          Text('Tap to edit hex tiles, and use gestures to move around the scene:\n'),
+          Text('- Drag to pan.'),
+          Text('- Pinch to zoom.'),
+          Text('- Rotate with two fingers.'),
+          Text('\nYou can always press the home button to return to the starting orientation!'),
+        ],
+      ),
+      actions: <Widget>[
+        FlatButton(
+          child: const Text('OK'),
+          onPressed: () {
+            Navigator.of(context).pop();
+          },
+        ),
+      ],
     );
-    // Translation is reversed (a positive translation moves the scene to the
-    // right, viewport to the left).
-    final Rect translationBoundaries = Rect.fromLTRB(
-      -scale * viewportBoundaries.right,
-      -scale * viewportBoundaries.bottom,
-      -scale * viewportBoundaries.left,
-      -scale * viewportBoundaries.top,
-    );
-    final Matrix4 nextMatrix = matrix.clone()..translate(
-      translation.dx,
-      translation.dy,
-    );
-    final Vector3 nextTranslationVector = nextMatrix.getTranslation();
-    final Offset nextTranslation = Offset(
-      nextTranslationVector.x,
-      nextTranslationVector.y,
-    );
-    final bool inBoundaries = translationBoundaries.contains(
-      Offset(nextTranslation.dx, nextTranslation.dy),
-    );
-    if (!inBoundaries) {
-      // TODO(justinmc): Instead of canceling translation when it goes out of
-      // bounds, stop translation at boundary.
-      return matrix;
-    }
-
-    return nextMatrix;
   }
 
-  // Return a new matrix representing the given matrix after applying the given
-  // scale transform.
-  Matrix4 matrixScale(Matrix4 matrix, double scale) {
-    if (widget.disableScale || scale == 1) {
-      return matrix;
-    }
-    assert(scale != 0);
-
-    // Don't allow a scale that moves the viewport outside of _boundaryRect.
-    final Offset tl = fromViewport(const Offset(0, 0), _transform);
-    final Offset tr = fromViewport(Offset(widget.size.width, 0), _transform);
-    final Offset bl = fromViewport(Offset(0, widget.size.height), _transform);
-    final Offset br = fromViewport(
-      Offset(widget.size.width, widget.size.height),
-      _transform,
+  FloatingActionButton get resetButton {
+    return FloatingActionButton(
+      onPressed: () {
+        setState(() {
+          _reset = true;
+        });
+      },
+      tooltip: 'Reset Transform',
+      backgroundColor: Theme.of(context).primaryColor,
+      child: const Icon(Icons.home),
     );
-    if (!_boundaryRect.contains(tl)
-      || !_boundaryRect.contains(tr)
-      || !_boundaryRect.contains(bl)
-      || !_boundaryRect.contains(br)) {
-      return matrix;
-    }
-
-    // Don't allow a scale that results in an overall scale beyond min/max
-    // scale.
-    final double currentScale = _transform.getMaxScaleOnAxis();
-    final double totalScale = currentScale * scale;
-    final double clampedTotalScale = totalScale.clamp(
-      widget.minScale,
-      widget.maxScale,
-    );
-    final double clampedScale = clampedTotalScale / currentScale;
-    return matrix..scale(clampedScale);
   }
 
-  // Return a new matrix representing the given matrix after applying the given
-  // rotation transform.
-  // Rotating the scene cannot cause the viewport to view beyond _boundaryRect.
-  Matrix4 matrixRotate(Matrix4 matrix, double rotation, Offset focalPoint) {
-    if (widget.disableRotation || rotation == 0) {
-      return matrix;
-    }
-    final Offset focalPointScene = fromViewport(focalPoint, matrix);
-    return matrix
-      ..translate(focalPointScene.dx, focalPointScene.dy)
-      ..rotateZ(-rotation)
-      ..translate(-focalPointScene.dx, -focalPointScene.dy);
+  FloatingActionButton get editButton {
+    return FloatingActionButton(
+      onPressed: () {
+        if (_board.selected == null) {
+          return;
+        }
+        showModalBottomSheet<Widget>(context: context, builder: (BuildContext context) {
+          return Container(
+            width: double.infinity,
+            height: 150,
+            padding: const EdgeInsets.all(12.0),
+            child: EditBoardPoint(
+              boardPoint: _board.selected,
+              onColorSelection: (Color color) {
+                setState(() {
+                  _board = _board.copyWithBoardPointColor(_board.selected, color);
+                  Navigator.pop(context);
+                });
+              },
+            ),
+          );
+        });
+      },
+      tooltip: 'Edit Tile',
+      child: const Icon(Icons.edit),
+    );
   }
 
-  // Handle the start of a gesture of _GestureType.
-  void _onScaleStart(ScaleStartDetails details) {
-    if (widget.onScaleStart != null) {
-      widget.onScaleStart(details);
-    }
-
-    if (_controller.isAnimating) {
-      _controller.stop();
-      _controller.reset();
-      _animation?.removeListener(_onAnimate);
-      _animation = null;
-    }
-    if (_controllerReset.isAnimating) {
-      _animateResetStop();
-    }
-
-    gestureType = null;
+  void _onTapUp(TapUpDetails details) {
+    final Offset scenePoint = details.globalPosition;
+    final BoardPoint boardPoint = _board.pointToBoardPoint(scenePoint);
     setState(() {
-      _scaleStart = _transform.getMaxScaleOnAxis();
-      _translateFromScene = fromViewport(details.focalPoint, _transform);
-      _rotationStart = _currentRotation;
+      _board = _board.copyWithSelected(boardPoint);
     });
   }
+}
 
-  // Handle an update to an ongoing gesture of _GestureType.
-  void _onScaleUpdate(ScaleUpdateDetails details) {
-    double scale = _transform.getMaxScaleOnAxis();
-    if (widget.onScaleUpdate != null) {
-      widget.onScaleUpdate(ScaleUpdateDetails(
-        focalPoint: fromViewport(details.focalPoint, _transform),
-        scale: details.scale,
-        rotation: details.rotation,
-      ));
-    }
-    final Offset focalPointScene = fromViewport(
-      details.focalPoint,
-      _transform,
-    );
-    if (gestureType == null) {
-      // Decide which type of gesture this is by comparing the amount of scale
-      // and rotation in the gesture, if any. Scale starts at 1 and rotation
-      // starts at 0. Translate will have 0 scale and 0 rotation because it uses
-      // only one finger.
-      if ((details.scale - 1).abs() > details.rotation.abs()) {
-        gestureType = _GestureType.scale;
-      } else if (details.rotation != 0) {
-        gestureType = _GestureType.rotate;
-      } else {
-        gestureType = _GestureType.translate;
-      }
-    }
-    setState(() {
-      if (gestureType == _GestureType.scale && _scaleStart != null) {
-        // details.scale gives us the amount to change the scale as of the
-        // start of this gesture, so calculate the amount to scale as of the
-        // previous call to _onScaleUpdate.
-        final double desiredScale = _scaleStart * details.scale;
-        final double scaleChange = desiredScale / scale;
-        _transform = matrixScale(_transform, scaleChange);
-        scale = _transform.getMaxScaleOnAxis();
+// CustomPainter is what is passed to CustomPaint and actually draws the scene
+// when its `paint` method is called.
+class BoardPainter extends CustomPainter {
+  const BoardPainter({
+    this.board,
+  });
 
-        // While scaling, translate such that the user's two fingers stay on the
-        // same places in the scene. That means that the focal point of the
-        // scale should be on the same place in the scene before and after the
-        // scale.
-        final Offset focalPointSceneNext = fromViewport(
-          details.focalPoint,
-          _transform,
-        );
-        _transform = matrixTranslate(_transform, focalPointSceneNext - focalPointScene);
-      } else if (gestureType == _GestureType.rotate && details.rotation != 0.0) {
-        final double desiredRotation = _rotationStart + details.rotation;
-        _transform = matrixRotate(_transform, _currentRotation - desiredRotation, details.focalPoint);
-        _currentRotation = desiredRotation;
-      } else if (_translateFromScene != null && details.scale == 1.0) {
-        // Translate so that the same point in the scene is underneath the
-        // focal point before and after the movement.
-        final Offset translationChange = focalPointScene - _translateFromScene;
-        _transform = matrixTranslate(_transform, translationChange);
-        _translateFromScene = fromViewport(details.focalPoint, _transform);
-      }
-    });
+  final Board board;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    void drawBoardPoint(BoardPoint boardPoint) {
+      final Color color = boardPoint.color.withOpacity(
+        board.selected == boardPoint ? 0.2 : 1.0,
+      );
+      final Vertices vertices = board.getVerticesForBoardPoint(boardPoint, color);
+      canvas.drawVertices(vertices, BlendMode.color, Paint());
+    }
+
+    board.forEach(drawBoardPoint);
   }
 
-  // Handle the end of a gesture of _GestureType.
-  void _onScaleEnd(ScaleEndDetails details) {
-    if (widget.onScaleEnd != null) {
-      widget.onScaleEnd(details);
-    }
-    setState(() {
-      _scaleStart = null;
-      _rotationStart = null;
-      _translateFromScene = null;
-    });
-
-    _animation?.removeListener(_onAnimate);
-    _controller.reset();
-
-    // If the scale ended with velocity, animate inertial movement
-    final double velocityTotal = details.velocity.pixelsPerSecond.dx.abs()
-      + details.velocity.pixelsPerSecond.dy.abs();
-    if (velocityTotal == 0) {
-      return;
-    }
-
-    final Vector3 translationVector = _transform.getTranslation();
-    final Offset translation = Offset(translationVector.x, translationVector.y);
-    final InertialMotion inertialMotion = InertialMotion(details.velocity, translation);
-    _animation = Tween<Offset>(
-      begin: translation,
-      end: inertialMotion.finalPosition,
-    ).animate(_controller);
-    _controller.duration = Duration(milliseconds: inertialMotion.duration.toInt());
-    _animation.addListener(_onAnimate);
-    _controller.fling();
+  // We should repaint whenever the board changes, such as board.selected.
+  @override
+  bool shouldRepaint(BoardPainter oldDelegate) {
+    return oldDelegate.board != board;
   }
+}
 
-  // Handle inertia drag animation.
-  void _onAnimate() {
-    setState(() {
-      // Translate _transform such that the resulting translation is
-      // _animation.value.
-      final Vector3 translationVector = _transform.getTranslation();
-      final Offset translation = Offset(translationVector.x, translationVector.y);
-      final Offset translationScene = fromViewport(translation, _transform);
-      final Offset animationScene = fromViewport(_animation.value, _transform);
-      final Offset translationChangeScene = animationScene - translationScene;
-      _transform = matrixTranslate(_transform, translationChangeScene);
-    });
-    if (!_controller.isAnimating) {
-      _animation?.removeListener(_onAnimate);
-      _animation = null;
-      _controller.reset();
+class HeartsPainter extends CustomPainter {
+
+  final Random rand = Random(100);
+  final List<Color> colors = <Color>[
+    Colors.red,
+    Colors.blue,
+    Colors.yellow,
+    Colors.green,
+    Colors.white,
+  ];
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    print('Hearts Painting..');
+    for (int i = 0; i < 300; i++) {
+      _drawHeart(canvas,
+          Offset(rand.nextDouble() * size.width, rand.nextDouble() * size.height),
+          colors[rand.nextInt(colors.length)].withOpacity(0.4));
     }
   }
 
-  // Handle reset to home transform animation.
-  void _onAnimateReset() {
-    setState(() {
-      _transform = _animationReset.value;
-    });
-    if (!_controllerReset.isAnimating) {
-      _animationReset?.removeListener(_onAnimateReset);
-      _animationReset = null;
-      _controllerReset.reset();
-      widget.onResetEnd();
-    }
-  }
+  void _drawHeart(Canvas canvas, Offset offset, Color color) {
+    final Path path = Path();
+    const double width = 40;
+    const double height = 40;
 
-  // Initialize the reset to home transform animation.
-  void _animateResetInitialize() {
-    _controllerReset.reset();
-    _animationReset = Matrix4Tween(
-      begin: _transform,
-      end: _initialTransform,
-    ).animate(_controllerReset);
-    _controllerReset.duration = const Duration(milliseconds: 400);
-    _animationReset.addListener(_onAnimateReset);
-    _controllerReset.forward();
-  }
+    // Starting point
+    path.moveTo(offset.dx + width / 2, offset.dy + height / 5);
 
-  // Stop a running reset to home transform animation.
-  void _animateResetStop() {
-    _controllerReset.stop();
-    _animationReset?.removeListener(_onAnimateReset);
-    _animationReset = null;
-    _controllerReset.reset();
-    widget.onResetEnd();
+    // Upper left path
+    path.cubicTo(offset.dx + 5 * width / 14, offset.dy + 0,
+        offset.dx + 0, offset.dy + height / 15,
+        offset.dx + width / 28, offset.dy + 2 * height / 5);
+
+    // Lower left path
+    path.cubicTo(offset.dx + width / 14, offset.dy + 2 * height / 3,
+        offset.dx + 3 * width / 7, offset.dy + 5 * height / 6,
+        offset.dx + width / 2, offset.dy + height);
+
+    // Lower right path
+    path.cubicTo(offset.dx + 4 * width / 7, offset.dy + 5 * height / 6,
+        offset.dx + 13 * width / 14, offset.dy + 2 * height / 3,
+        offset.dx + 27 * width / 28, offset.dy + 2 * height / 5);
+
+    // Upper right path
+    path.cubicTo(offset.dx + width, offset.dy + height / 15,
+        offset.dx + 9 * width / 14, offset.dy + 0,
+        offset.dx + width / 2, offset.dy + height / 5);
+
+    canvas.drawPath(path, Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..color = color.withOpacity(0.4));
   }
 
   @override
-  void dispose() {
-    _controller.dispose();
-    _controllerReset.dispose();
-    super.dispose();
-  }
+  bool shouldRepaint(HeartsPainter oldDelegate) => false;
 }
