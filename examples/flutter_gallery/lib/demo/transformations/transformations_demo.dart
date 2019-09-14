@@ -56,6 +56,12 @@ class _TransformationsDemoState extends State<TransformationsDemo> {
           // translate beyond that to a visibleSize that's a bit bigger.
           final Size size = Size(constraints.maxWidth, constraints.maxHeight);
           final Size visibleSize = Size(size.width * 3, size.height * 2);
+          final Rect visibleRect = Rect.fromLTWH(
+            -(visibleSize.width - size.width) / 2,
+            -(visibleSize.height - size.height) / 2,
+            visibleSize.width,
+            visibleSize.height,
+          );
           return GestureTransformable(
             reset: _reset,
             onResetEnd: () {
@@ -64,14 +70,9 @@ class _TransformationsDemoState extends State<TransformationsDemo> {
               });
             },
             child: CustomPaint(
-              painter: painter,
+              painter: HeartsPainter(),
             ),
-            boundaryRect: Rect.fromLTWH(
-              -visibleSize.width / 2,
-              -visibleSize.height / 2,
-              visibleSize.width,
-              visibleSize.height,
-            ),
+            boundaryRect: visibleRect,
             // Center the board in the middle of the screen. It's drawn centered
             // at the origin, which is the top left corner of the
             // GestureTransformable.
@@ -187,4 +188,63 @@ class BoardPainter extends CustomPainter {
   bool shouldRepaint(BoardPainter oldDelegate) {
     return oldDelegate.board != board;
   }
+}
+
+class HeartsPainter extends CustomPainter {
+
+  final Paint hearPaint = Paint()
+    ..strokeWidth = 1
+    ..style = PaintingStyle.stroke;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    print('Hearts Painting..');
+    const int count = 100;
+    for (int i = 0; i < count; i++) {
+      _drawHeart(
+          canvas,
+          Size((i + 1) / count * size.width, (i + 1) / count * size.height),
+          Colors.blue.withRed((i / count * 255).toInt()).withOpacity(0.4));
+    }
+  }
+
+  void _drawHeart(Canvas canvas, Size size, Color color) {
+    final Path path = Path();
+    final double width = size.width;
+    final double height = size.height;
+
+    // Starting point
+    path.moveTo(width / 2, height / 5);
+
+    // Upper left path
+    path.cubicTo(
+        5 * width / 14, 0,
+        0, height / 15,
+        width / 28, 2 * height / 5);
+
+    // Lower left path
+    path.cubicTo(
+        width / 14, 2 * height / 3,
+        3 * width / 7, 5 * height / 6,
+        width / 2, height);
+
+    // Lower right path
+    path.cubicTo(
+        4 * width / 7, 5 * height / 6,
+        13 * width / 14, 2 * height / 3,
+        27 * width / 28, 2 * height / 5);
+
+    // Upper right path
+    path.cubicTo(
+        width, height / 15,
+        9 * width / 14, 0,
+        width / 2, height / 5);
+
+    canvas.drawPath(
+        path,
+        hearPaint..color = color);
+  }
+
+  @override
+  bool shouldRepaint(HeartsPainter oldDelegate) => false;
 }
